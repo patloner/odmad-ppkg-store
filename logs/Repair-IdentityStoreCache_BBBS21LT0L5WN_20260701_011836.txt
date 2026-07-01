@@ -1,0 +1,33 @@
+====================================================
+ Repair-IdentityStoreCache - 2026-07-01 01:18:36
+ Host: BBBS21LT0L5WN
+ Reference: Quest ODMAD QSG FAQ TOPIC-2293745
+====================================================
+
+ Purpose: Clear stale identity cache to prevent black screen
+          on first target-user logon post-cutover.
+
+ AzureAdJoined : YES
+ TenantName    : Big Brothers Big Sisters of Central Minnesota
+ DeviceId      : ff67f8ad-7331-4e9c-9bdc-fc0a003b8f02
+
+[1/1] Clearing IdentityStore\Cache...
+  Found 10 subkey(s) under IdentityStore\Cache.
+  REMOVED: S-1-5-18 (5 child item(s))
+  REMOVED: S-1-5-21-103566490-3540240627-1875102364-1001 (0 child item(s))
+  REMOVED: S-1-5-21-103566490-3540240627-1875102364-1002 (0 child item(s))
+  REMOVED: S-1-5-21-103566490-3540240627-1875102364-1004 (0 child item(s))
+  REMOVED: S-1-5-21-103566490-3540240627-1875102364-1005 (0 child item(s))
+  REMOVED: S-1-5-21-3811778857-116291807-1624676264-15117 (0 child item(s))
+  REMOVED: S-1-5-21-3811778857-116291807-1624676264-4101 (0 child item(s))
+  REMOVED: S-1-5-21-3811778857-116291807-1624676264-4105 (0 child item(s))
+  REMOVED: S-1-5-21-3811778857-116291807-1624676264-4107 (0 child item(s))
+  REMOVED: S-1-5-21-3811778857-116291807-1624676264-4115 (0 child item(s))
+
+====================================================
+ Result: Cleared 10 of 10 cache subkey(s). Clean.
+ The cache will rebuild correctly on the target user's first sign-in.
+
+ IMPORTANT: This script must run BEFORE the target user's first logon.
+ Reference : Quest ODMAD Entra-Joined Devices QSG FAQ TOPIC-2293745
+====================================================
