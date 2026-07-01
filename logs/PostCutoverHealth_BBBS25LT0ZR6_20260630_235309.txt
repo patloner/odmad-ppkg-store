@@ -1,0 +1,56 @@
+====================================================================
+ Get-PostCutoverHealth - 2026-06-30 23:53:09
+ Host: BBBS25LT0ZR6
+ Quest ODMAD Post-Cutover Health Check (Domain->Entra)
+ Reference: Quest ODMAD Entra-Joined Devices QSG TOPIC-2311203
+====================================================================
+
+[1/6] Entra Join State
+      (Quest ODMAD QSG TOPIC-2311203: Verify device is Microsoft Entra ID Joined)
+
+  [PASS] AzureAdJoined                       AzureAdJoined=YES  TenantName=Big Brothers Big Sisters of Central Minnesota
+  [PASS] DomainJoined                        DomainJoined=NO - domain leave complete.
+  [PASS] WMI-DomainMembership                Win32_ComputerSystem.PartOfDomain=False
+
+[2/6] Enrollment State and Residual Artifacts
+
+  [PASS] MmpcEnrollmentFlag                  MmpcEnrollmentFlag absent or 0 - no 0x80190190 blocker.
+  [PASS] MAM-Enrollments                     No residual MAM enrollments found.
+
+[3/6] Domain Leave Residue
+
+  [PASS] GPO-Tattoo-Orphan                   No orphaned GPO tattoo (no GPO history or still domain-managed).
+
+[4/6] Stale Identity Artifacts
+
+  [PASS] Stale-Device-Cert                   No stale MS-Organization-Access certificates found.
+  [WARN] IdentityStore-Cache                 IdentityStore cache populated. If first target-user logon shows black screen or flickering, this is the cause.
+                                              -> Per Quest ODMAD QSG TOPIC-2293745: remove HKLM:\SOFTWARE\Microsoft\IdentityStore\Cache subfolders BEFORE the target user first logs in. Safe to do post-join.
+  [PASS] Profile-BakSid                      No .bak SIDs in ProfileList.
+  [PASS] Profile-Orphan                      No orphaned ProfileList entries.
+  [PASS] Autopilot-Cache                     No assigned Autopilot profile cached.
+
+[5/6] BitLocker State
+
+  [PASS] BitLocker-Encrypted                 OS volume not encrypted (EncryptionSuspended) - no BitLocker escrow required.
+
+[6/6] Network and Clock
+
+  [PASS] Connectivity-Login                  login.microsoftonline.com:443 reachable.
+  [PASS] Clock-Skew                          Clock skew check inconclusive (w32tm output not parseable) - informational.
+
+====================================================================
+ SUMMARY  Host: BBBS25LT0ZR6
+ 2026-06-30 23:53:17
+
+  PASS:  13   WARN:   1   FAIL:   0   Total:  14
+
+ OVERALL: REVIEW RECOMMENDED - 1 warning(s) flagged for follow-up.
+
+ Entra Join State  : AzureAdJoined=YES  DomainJoined=NO
+ Target Tenant     : Big Brothers Big Sisters of Central Minnesota (903f8564-ea68-48e4-98fc-cff781f3eb1f)
+ DeviceId (Entra)  : 5adbd20c-816e-46a0-bd4b-201044142d17
+
+ Reference: Quest ODMAD Entra-Joined Devices QSG TOPIC-2311203
+ For full diagnostics on failed machines: run Get-CutoverState.ps1 (SinceHours 12)
+====================================================================
