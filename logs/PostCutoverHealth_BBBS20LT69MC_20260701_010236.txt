@@ -1,0 +1,62 @@
+====================================================================
+ Get-PostCutoverHealth - 2026-07-01 01:02:36
+ Host: BBBS20LT69MC
+ Quest ODMAD Post-Cutover Health Check (Domain->Entra)
+ Reference: Quest ODMAD Entra-Joined Devices QSG TOPIC-2311203
+====================================================================
+
+[1/6] Entra Join State
+      (Quest ODMAD QSG TOPIC-2311203: Verify device is Microsoft Entra ID Joined)
+
+  [PASS] AzureAdJoined                       AzureAdJoined=YES  TenantName=Big Brothers Big Sisters of Central Minnesota
+  [PASS] DomainJoined                        DomainJoined=NO - domain leave complete.
+  [PASS] WMI-DomainMembership                Win32_ComputerSystem.PartOfDomain=False
+
+[2/6] Enrollment State and Residual Artifacts
+
+  [PASS] MmpcEnrollmentFlag                  MmpcEnrollmentFlag absent or 0 - no 0x80190190 blocker.
+  [PASS] MAM-Enrollments                     No residual MAM enrollments found.
+
+[3/6] Domain Leave Residue
+
+  [PASS] GPO-Tattoo-Orphan                   No orphaned GPO tattoo (no GPO history or still domain-managed).
+
+[4/6] Stale Identity Artifacts
+
+  [PASS] Stale-Device-Cert                   No stale MS-Organization-Access certificates found.
+  [PASS] IdentityStore-Cache                 No foreign-domain SIDs in IdentityStore cache (SYSTEM entries are normal and harmless).
+  [PASS] Profile-BakSid                      No .bak SIDs in ProfileList.
+  [PASS] Profile-Orphan                      No orphaned ProfileList entries.
+  [PASS] Autopilot-Cache                     No assigned Autopilot profile cached.
+
+[5/6] BitLocker State
+
+  [FAIL] BitLocker-NoRecoveryKey             OS volume ENCRYPTED with NO RecoveryPassword protector - lockout risk.
+                                              -> Add a recovery password: manage-bde -protectors -add -RecoveryPassword C:, then escrow to Entra: BackupToAAD-BitLockerKeyProtector.
+  [WARN] BitLocker-Suspended                 BitLocker protection is suspended (off) on the OS volume.
+                                              -> Resume protection: manage-bde -protectors -enable C:. May occur if Intune device object was deleted during cutover.
+  [WARN] BitLocker-Escrow                    No escrow log or task found. Cannot confirm key was escrowed to the target Entra tenant.
+                                              -> Verify recovery key exists on the device object in the TARGET Entra portal. If absent, escrow manually.
+
+[6/6] Network and Clock
+
+  [PASS] Connectivity-Login                  login.microsoftonline.com:443 reachable.
+  [PASS] Clock-Skew                          Clock skew check inconclusive (w32tm output not parseable) - informational.
+
+====================================================================
+ SUMMARY  Host: BBBS20LT69MC
+ 2026-07-01 01:02:41
+
+  PASS:  13   WARN:   2   FAIL:   1   Total:  16
+
+ OVERALL: ACTION REQUIRED - 1 check(s) need resolution before closing out.
+   FAIL -> BitLocker-NoRecoveryKey: OS volume ENCRYPTED with NO RecoveryPassword protector - lockout risk.
+           -> Add a recovery password: manage-bde -protectors -add -RecoveryPassword C:, then escrow to Entra: BackupToAAD-BitLockerKeyProtector.
+
+ Entra Join State  : AzureAdJoined=YES  DomainJoined=NO
+ Target Tenant     : Big Brothers Big Sisters of Central Minnesota (903f8564-ea68-48e4-98fc-cff781f3eb1f)
+ DeviceId (Entra)  : a773b469-621d-4ce5-9fc0-94422c6109d8
+
+ Reference: Quest ODMAD Entra-Joined Devices QSG TOPIC-2311203
+ For full diagnostics on failed machines: run Get-CutoverState.ps1 (SinceHours 12)
+====================================================================
