@@ -1,0 +1,20 @@
+====================================================
+ Remove-ConflictingEnrollments - 2026-07-01 07:34:29
+ Host: BBBS20LT7HVY
+====================================================
+
+[1/2] Checking HKLM:\SOFTWARE\Microsoft\Enrollments for MAM entries...
+  FOUND MAM enrollment: BAE9C4FA-8C2E-4DB0-B575-ABDCE906618B
+    UPN        : Brenda@bigdefenders.org
+    TenantId   : 903f8564-ea68-48e4-98fc-cff781f3eb1f
+    Type       : 5
+    Provider   : MAM SyncML Server
+    REMOVED OK
+
+[2/2] Checking WorkplaceJoin\JoinInfo for registered device entries...
+  WorkplaceJoin\JoinInfo key not present - nothing to check.
+
+====================================================
+ Result: Found 1  |  Removed 1  |  Errors 0
+ All conflicting enrollments cleared. Proceeding to Entra join.
+====================================================
