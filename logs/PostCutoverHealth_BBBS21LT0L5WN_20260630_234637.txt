@@ -1,0 +1,66 @@
+====================================================================
+ Get-PostCutoverHealth - 2026-06-30 23:46:37
+ Host: BBBS21LT0L5WN
+ Quest ODMAD Post-Cutover Health Check (Domain->Entra)
+ Reference: Quest ODMAD Entra-Joined Devices QSG TOPIC-2311203
+====================================================================
+
+[1/6] Entra Join State
+      (Quest ODMAD QSG TOPIC-2311203: Verify device is Microsoft Entra ID Joined)
+
+  [FAIL] AzureAdJoined                       AzureAdJoined=NO - cutover did not complete the Entra join.
+                                              -> Verify reboot occurred. Check ODM task log for 0x8018000A/0xCAA2000C/0x801c001d. Run Get-CutoverState.ps1 for full diagnostics.
+  [PASS] DomainJoined                        DomainJoined=NO - domain leave complete.
+  [PASS] WMI-DomainMembership                Win32_ComputerSystem.PartOfDomain=False
+
+[2/6] Enrollment State and Residual Artifacts
+
+  [PASS] MmpcEnrollmentFlag                  MmpcEnrollmentFlag absent or 0 - no 0x80190190 blocker.
+  [PASS] MAM-Enrollments                     No residual MAM enrollments found.
+
+[3/6] Domain Leave Residue
+
+  [PASS] GPO-Tattoo-Orphan                   No orphaned GPO tattoo (no GPO history or still domain-managed).
+
+[4/6] Stale Identity Artifacts
+
+  [WARN] Stale-Device-Cert                   Cannot check - DeviceId unknown from dsregcmd (AzureAdJoined may be NO).
+                                              -> Resolve the join state first, then re-check certificates.
+  [PASS] IdentityStore-Cache                 IdentityStore cache empty or not present (no black-screen risk on first logon).
+  [PASS] Profile-BakSid                      No .bak SIDs in ProfileList.
+  [PASS] Profile-Orphan                      No orphaned ProfileList entries.
+  [PASS] Autopilot-Cache                     No assigned Autopilot profile cached.
+
+[5/6] BitLocker State
+
+  [FAIL] BitLocker-NoRecoveryKey             OS volume ENCRYPTED with NO RecoveryPassword protector - lockout risk.
+                                              -> Add a recovery password: manage-bde -protectors -add -RecoveryPassword C:, then escrow to Entra: BackupToAAD-BitLockerKeyProtector.
+  [WARN] BitLocker-Suspended                 BitLocker protection is suspended (off) on the OS volume.
+                                              -> Resume protection: manage-bde -protectors -enable C:. May occur if Intune device object was deleted during cutover.
+  [WARN] BitLocker-Escrow                    No escrow log or task found. Cannot confirm key was escrowed to the target Entra tenant.
+                                              -> Verify recovery key exists on the device object in the TARGET Entra portal. If absent, escrow manually.
+
+[6/6] Network and Clock
+
+  [PASS] Connectivity-Login                  login.microsoftonline.com:443 reachable.
+  [PASS] Clock-Skew                          Clock skew check inconclusive (w32tm output not parseable) - informational.
+
+====================================================================
+ SUMMARY  Host: BBBS21LT0L5WN
+ 2026-06-30 23:46:42
+
+  PASS:  11   WARN:   3   FAIL:   2   Total:  16
+
+ OVERALL: ACTION REQUIRED - 2 check(s) need resolution before closing out.
+   FAIL -> AzureAdJoined: AzureAdJoined=NO - cutover did not complete the Entra join.
+           -> Verify reboot occurred. Check ODM task log for 0x8018000A/0xCAA2000C/0x801c001d. Run Get-CutoverState.ps1 for full diagnostics.
+   FAIL -> BitLocker-NoRecoveryKey: OS volume ENCRYPTED with NO RecoveryPassword protector - lockout risk.
+           -> Add a recovery password: manage-bde -protectors -add -RecoveryPassword C:, then escrow to Entra: BackupToAAD-BitLockerKeyProtector.
+
+ Entra Join State  : AzureAdJoined=NO  DomainJoined=NO
+ Target Tenant     : unknown (unknown)
+ DeviceId (Entra)  : unknown
+
+ Reference: Quest ODMAD Entra-Joined Devices QSG TOPIC-2311203
+ For full diagnostics on failed machines: run Get-CutoverState.ps1 (SinceHours 12)
+====================================================================
