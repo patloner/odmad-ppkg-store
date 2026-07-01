@@ -1,0 +1,48 @@
+====================================================
+ Repair-IdentityStoreCache - 2026-07-01 00:27:29
+ Host: BBBS24LTYS34
+ Reference: Quest ODMAD QSG FAQ TOPIC-2293745
+====================================================
+
+ Purpose: Clear stale identity cache to prevent black screen
+          on first target-user logon post-cutover.
+
+ AzureAdJoined : YES
+ TenantName    : Big Brothers Big Sisters of Central Minnesota
+ DeviceId      : 017331ab-248f-4969-908c-e66d40305363
+
+[1/1] Clearing IdentityStore\Cache...
+  Found 25 subkey(s) under IdentityStore\Cache.
+  REMOVED: S-1-12-1-3308965372-1163804000-1880221359-4155008916 (2 child item(s))
+  REMOVED: S-1-5-18 (2 child item(s))
+  REMOVED: S-1-5-19 (2 child item(s))
+  REMOVED: S-1-5-20 (2 child item(s))
+  REMOVED: S-1-5-21-1949448568-3805482069-3338931388-1001 (0 child item(s))
+  REMOVED: S-1-5-21-1949448568-3805482069-3338931388-1002 (0 child item(s))
+  REMOVED: S-1-5-21-3811778857-116291807-1624676264-4101 (0 child item(s))
+  REMOVED: S-1-5-21-3811778857-116291807-1624676264-4103 (2 child item(s))
+  REMOVED: S-1-5-90-0-1 (2 child item(s))
+  REMOVED: S-1-5-90-0-10 (2 child item(s))
+  REMOVED: S-1-5-90-0-11 (2 child item(s))
+  REMOVED: S-1-5-90-0-12 (2 child item(s))
+  REMOVED: S-1-5-90-0-13 (2 child item(s))
+  REMOVED: S-1-5-90-0-14 (2 child item(s))
+  REMOVED: S-1-5-90-0-15 (2 child item(s))
+  REMOVED: S-1-5-90-0-16 (2 child item(s))
+  REMOVED: S-1-5-90-0-17 (2 child item(s))
+  REMOVED: S-1-5-90-0-2 (2 child item(s))
+  REMOVED: S-1-5-90-0-3 (2 child item(s))
+  REMOVED: S-1-5-90-0-4 (2 child item(s))
+  REMOVED: S-1-5-90-0-5 (2 child item(s))
+  REMOVED: S-1-5-90-0-6 (2 child item(s))
+  REMOVED: S-1-5-90-0-7 (2 child item(s))
+  REMOVED: S-1-5-90-0-8 (2 child item(s))
+  REMOVED: S-1-5-90-0-9 (2 child item(s))
+
+====================================================
+ Result: Cleared 25 of 25 cache subkey(s). Clean.
+ The cache will rebuild correctly on the target user's first sign-in.
+
+ IMPORTANT: This script must run BEFORE the target user's first logon.
+ Reference : Quest ODMAD Entra-Joined Devices QSG FAQ TOPIC-2293745
+====================================================
