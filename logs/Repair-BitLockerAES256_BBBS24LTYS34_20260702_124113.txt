@@ -1,0 +1,27 @@
+2026-07-02 12:41:13  [INFO]  ====================================================
+2026-07-02 12:41:13  [INFO]   Repair-BitLockerAES256 - Mode=APPLY  Target=XtsAes256  MountPoint=C:
+2026-07-02 12:41:13  [INFO]   Host: BBBS24LTYS34
+2026-07-02 12:41:13  [INFO]  ====================================================
+2026-07-02 12:41:14  [INFO]  AzureAdJoined=YES  Tenant=Big Brothers Big Sisters of Central Minnesota (903f8564-ea68-48e4-98fc-cff781f3eb1f)  DeviceId=017331ab-248f-4969-908c-e66d40305363
+2026-07-02 12:41:15  [INFO]  [Current state]
+2026-07-02 12:41:15  [INFO]    MountPoint           : C:
+2026-07-02 12:41:15  [INFO]    VolumeStatus         : FullyEncrypted
+2026-07-02 12:41:15  [INFO]    ProtectionStatus     : On
+2026-07-02 12:41:15  [INFO]    EncryptionMethod     : XtsAes256
+2026-07-02 12:41:15  [INFO]    EncryptionPercentage : 100%
+2026-07-02 12:41:15  [INFO]    KeyProtector count   : 1  (Tpm)
+2026-07-02 12:41:15  [INFO]  [STATE 5: RIGHT METHOD, NOT PROTECTED] Method=XtsAes256 already correct. ProtectionStatus=On, RecoveryPassword present=False.
+2026-07-02 12:41:18  [OK]    Added RecoveryPassword protector.
+2026-07-02 12:41:19  [INFO]    MountPoint           : C:
+2026-07-02 12:41:19  [INFO]    VolumeStatus         : FullyEncrypted
+2026-07-02 12:41:19  [INFO]    ProtectionStatus     : On
+2026-07-02 12:41:19  [INFO]    EncryptionMethod     : XtsAes256
+2026-07-02 12:41:19  [INFO]    EncryptionPercentage : 100%
+2026-07-02 12:41:19  [INFO]    KeyProtector count   : 2  (Tpm, RecoveryPassword)
+2026-07-02 12:41:23  [OK]    Escrow OK -> tenant 903f8564-ea68-48e4-98fc-cff781f3eb1f, protector {EC09B664-F3C7-49C7-958B-7E88509AB829}.
+2026-07-02 12:41:23  [INFO]  Repair-BitLockerAES256 complete for this run.
+2026-07-02 12:41:23  [INFO]  ====================================================
+2026-07-02 12:41:23  [INFO]   Repair-BitLockerAES256 finished - 2026-07-02 12:41:23
+2026-07-02 12:41:23  [INFO]   Host: BBBS24LTYS34  |  Tenant: Big Brothers Big Sisters of Central Minnesota
+2026-07-02 12:41:23  [INFO]   Run Get-CutoverState / Get-PostCutoverHealth to verify PASS after remediation.
+2026-07-02 12:41:23  [INFO]  ====================================================
