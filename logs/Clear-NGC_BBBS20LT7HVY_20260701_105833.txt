@@ -1,0 +1,17 @@
+====================================================
+ Clear-NGC - 2026-07-01 10:58:33
+ Host: BBBS20LT7HVY
+ Purpose: Remove source-domain Windows Hello/PIN keys
+          before Entra join to prevent TPM error at first logon.
+====================================================
+
+ NGC path present - found 1 item(s).
+ Taking ownership and clearing...
+   takeown: OK
+   icacls:  OK
+ CLEARED: removed 1 item(s). Windows Hello keys from source domain gone.
+
+====================================================
+ Clear-NGC complete - 2026-07-01 10:58:34
+ Result: NGC cleared successfully. First logon TPM error prevented.
+====================================================

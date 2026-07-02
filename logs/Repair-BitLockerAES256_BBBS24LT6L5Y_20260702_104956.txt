@@ -1,0 +1,22 @@
+2026-07-02 10:49:56  [INFO]  ====================================================
+2026-07-02 10:49:56  [INFO]   Repair-BitLockerAES256 - Mode=APPLY  Target=XtsAes256  MountPoint=C:
+2026-07-02 10:49:56  [INFO]   Host: BBBS24LT6L5Y
+2026-07-02 10:49:56  [INFO]  ====================================================
+2026-07-02 10:49:57  [INFO]  AzureAdJoined=YES  Tenant=Big Brothers Big Sisters of Central Minnesota (903f8564-ea68-48e4-98fc-cff781f3eb1f)  DeviceId=2cef98e5-3ea8-43bd-a535-6cc378d6928a
+2026-07-02 10:49:58  [INFO]  [Current state]
+2026-07-02 10:49:58  [INFO]    MountPoint           : C:
+2026-07-02 10:49:58  [INFO]    VolumeStatus         : FullyEncrypted
+2026-07-02 10:49:58  [INFO]    ProtectionStatus     : Off
+2026-07-02 10:49:58  [INFO]    EncryptionMethod     : XtsAes128
+2026-07-02 10:49:58  [INFO]    EncryptionPercentage : 100%
+2026-07-02 10:49:58  [INFO]    KeyProtector count   : 0  ()
+2026-07-02 10:49:58  [INFO]  [STATE 4: WRONG METHOD, ENCRYPTED] Current=XtsAes128, target=XtsAes256, ProtectionStatus=Off, Protectors=0.
+2026-07-02 10:49:58  [INFO]    Microsoft: encryption method cannot change in place -- must fully decrypt first.
+2026-07-02 10:50:01  [OK]    Disable-BitLocker started/re-issued (async decrypt; idempotent if already underway).
+2026-07-02 10:50:01  [INFO]    Re-run the script once VolumeStatus shows FullyDecrypted to trigger re-encryption (state 3 picks it up from there).
+2026-07-02 10:50:01  [INFO]  Repair-BitLockerAES256 complete for this run.
+2026-07-02 10:50:01  [INFO]  ====================================================
+2026-07-02 10:50:01  [INFO]   Repair-BitLockerAES256 finished - 2026-07-02 10:50:01
+2026-07-02 10:50:01  [INFO]   Host: BBBS24LT6L5Y  |  Tenant: Big Brothers Big Sisters of Central Minnesota
+2026-07-02 10:50:01  [INFO]   Run Get-CutoverState / Get-PostCutoverHealth to verify PASS after remediation.
+2026-07-02 10:50:01  [INFO]  ====================================================
