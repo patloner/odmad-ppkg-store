@@ -58,12 +58,12 @@
 # CONFIG - values injected by the ODM bootstrap at runtime via environment variables.
 # When run standalone (not via bootstrap), set the env vars before running or
 # edit the fallback values below.
-#   $env:ODMAD_GH_TOKEN         = 'ghp_...'   # PAT with contents:write on odmad-ppkg-store
+#   $env:ODMAD_GH_TOKEN         = ''   # PAT with contents:write on odmad-ppkg-store
 #   $env:ODMAD_INTUNE_BITLOCKER = 'true'       # set if client has Intune BitLocker config profile
 # ===========================================================================
 $GitHubToken = if ($env:ODMAD_GH_TOKEN) { $env:ODMAD_GH_TOKEN } else { '' }
 $RepoOwner   = 'patloner'
-$RepoName    = 'odmad-ppkg-store'
+$RepoName    = 'odmreports'
 $Branch      = 'main'
 $IntuneManagesBitLocker = ($env:ODMAD_INTUNE_BITLOCKER -eq 'true')
 # ===========================================================================
