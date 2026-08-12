@@ -237,6 +237,59 @@ if ($partOfDomain) {
     Add-CheckResult -Name 'WMI-DomainMembership' -Verdict 'PASS' -Detail "Win32_ComputerSystem.PartOfDomain=False"
 }
 
+# ---------------------------------------------------------------------------
+# Primary Refresh Token (PRT)
+#
+# CONTEXT TRAP: AzureAdPrt lives in the SSO State section of dsregcmd /status,
+# which reflects the CALLING USER's token - not the device. ODM custom actions
+# run as SYSTEM, and SYSTEM never holds a user PRT, so dsregcmd reports
+# AzureAdPrt : NO on a perfectly healthy device. Evaluating that as a fault would
+# WARN on every machine in the fleet.
+#
+# So: only assess PRT when running interactively. Under SYSTEM, report that it is
+# not assessable and say how to check it. A check that cannot see the truth should
+# say so rather than guess.
+# ---------------------------------------------------------------------------
+
+$runningAsSystem  = $false
+$currentIdentity  = 'unknown'
+$currentUserSid   = ''
+$isEntraPrincipal = $false
+try {
+    $wid = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $currentIdentity = $wid.Name
+    $currentUserSid  = $wid.User.Value
+    $runningAsSystem = ($currentUserSid -eq 'S-1-5-18')
+    # Entra ID accounts get an S-1-12-1-* SID. A local or on-prem domain account
+    # (S-1-5-21-*) legitimately has NO Primary Refresh Token, so evaluating PRT
+    # for one would WARN on a perfectly healthy device - e.g. any time this is run
+    # interactively from a local admin session or via runas.
+    $isEntraPrincipal = ($currentUserSid -like 'S-1-12-1-*')
+} catch { }
+
+if ($runningAsSystem) {
+    Add-CheckResult -Name 'AzureAdPrt' -Verdict 'PASS' `
+        -Detail "Not assessable - running as SYSTEM ($currentIdentity), and dsregcmd SSO State reports the calling user's PRT, not the device's. Reported value ($azureAdPrt) is meaningless here. To check: have the signed-in user run 'dsregcmd /status' and read AzureAdPrt under SSO State."
+} elseif (-not $isEntraPrincipal) {
+    Add-CheckResult -Name 'AzureAdPrt' -Verdict 'PASS' `
+        -Detail "Not assessable - running as $currentIdentity (SID $currentUserSid), which is a local or on-prem account, not an Entra identity. Such accounts never hold a PRT, so the reported value ($azureAdPrt) says nothing about device health. Run as the migrated Entra user to assess."
+} elseif ($aadJoined -ne 'YES') {
+    # The join already FAILed above. A missing PRT is a consequence of that, not an
+    # independent finding - do not report the same root cause twice.
+    Add-CheckResult -Name 'AzureAdPrt' -Verdict 'PASS' `
+        -Detail "Not assessed - device is not Entra joined, so PRT absence is expected and already reported by the AzureAdJoined check."
+} elseif ($azureAdPrt -eq 'YES') {
+    Add-CheckResult -Name 'AzureAdPrt' -Verdict 'PASS' `
+        -Detail "AzureAdPrt=YES for $currentIdentity - user has a valid Primary Refresh Token, SSO to Entra resources is working."
+} elseif ($azureAdPrt -eq 'NO') {
+    Add-CheckResult -Name 'AzureAdPrt' -Verdict 'WARN' `
+        -Detail "AzureAdPrt=NO for $currentIdentity despite the device being Entra joined - this user has no Primary Refresh Token." `
+        -Action "SSO to Entra resources will fail and the user may be prompted repeatedly. Check Connectivity-Login below, confirm the account is licensed and not blocked by Conditional Access, then sign out and back in. If it persists, check WamDefaultSet ($wamDefaultSet) and the device certificate."
+} else {
+    Add-CheckResult -Name 'AzureAdPrt' -Verdict 'PASS' `
+        -Detail "AzureAdPrt not reported by dsregcmd (value: $azureAdPrt) - informational, no conclusion drawn."
+}
+
 Write-Log ""
 
 # ===========================================================================
@@ -408,7 +461,9 @@ if (Test-Path $idStoreRoot) {
         foreach ($sk in @(Get-ChildItem -Path $idStoreRoot -ErrorAction SilentlyContinue)) {
             $sid = $sk.PSChildName
             if ($systemOnlySids -contains $sid) { continue }
-            if ($machineSidPrefix -and $sid.StartsWith($machineSidPrefix)) { continue }
+            # Trailing '-' so a domain prefix that merely starts with the same
+            # characters as the machine prefix is not silently excluded.
+            if ($machineSidPrefix -and $sid.StartsWith($machineSidPrefix + '-')) { continue }
             if ($sid -like 'S-1-5-21-*') {
                 [void]$staleCacheSids.Add($sid)
             }
@@ -416,13 +471,52 @@ if (Test-Path $idStoreRoot) {
     } catch { }
 }
 
-if ($staleCacheSids.Count -gt 0) {
-    Add-CheckResult -Name 'IdentityStore-Cache' -Verdict 'WARN' `
-        -Detail "Cache contains $($staleCacheSids.Count) foreign-domain SID(s): $($staleCacheSids -join ', '). Black screen risk on first target-user logon." `
-        -Action "Per Quest ODMAD QSG TOPIC-2293745: run Repair-IdentityStoreCache.ps1 BEFORE the target user first logs in."
-} else {
+# Has a migrated (Entra) user actually signed in yet? Entra user profiles are
+# keyed by an S-1-12-1-* SID in ProfileList. This is what makes the check below
+# state-aware instead of an always-fires reminder:
+#
+#   No Entra profile yet  -> source SIDs in the cache are the EXPECTED pre-logon
+#                            state on any device that ever had domain users.
+#                            Reporting that as WARN on every machine buries the
+#                            real failures in noise.
+#   Entra profile present -> a migrated user has signed in and stale SIDs are
+#                            STILL cached. That is the genuinely dangerous state:
+#                            the black screen has either occurred or will recur.
+$entraProfileSids = [System.Collections.Generic.List[string]]::new()
+$plRootForCache   = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
+if (Test-Path $plRootForCache) {
+    try {
+        foreach ($sk in @(Get-ChildItem -Path $plRootForCache -ErrorAction SilentlyContinue)) {
+            if ($sk.PSChildName -like 'S-1-12-1-*') { [void]$entraProfileSids.Add($sk.PSChildName) }
+        }
+    } catch { }
+}
+$targetUserHasLoggedIn = ($entraProfileSids.Count -gt 0)
+
+if ($staleCacheSids.Count -eq 0) {
     Add-CheckResult -Name 'IdentityStore-Cache' -Verdict 'PASS' `
         -Detail "No foreign-domain SIDs in IdentityStore cache (SYSTEM entries are normal and harmless)."
+} elseif (-not $machineSidPrefix) {
+    # The local machine SID prefix could not be determined, so local account SIDs
+    # were NOT excluded above and may be misclassified as foreign. Do not WARN on
+    # data we know is unreliable - say the check could not be trusted instead.
+    Add-CheckResult -Name 'IdentityStore-Cache' -Verdict 'PASS' `
+        -Detail "Not assessed reliably - could not determine the local machine SID prefix (Win32_UserAccount query returned nothing), so local account SIDs cannot be distinguished from source-domain ones. Raw S-1-5-21 entries found: $($staleCacheSids.Count)."
+} elseif ($targetUserHasLoggedIn) {
+    # Wording is deliberately factual. An S-1-12-1-* profile key proves an Entra
+    # profile EXISTS - it does not prove the migrated user interactively signed in.
+    # The key can predate the cutover (IT admin cloud account, kiosk account,
+    # Autopilot pre-provisioning) or be written by the remap tooling at cutover
+    # time. Claiming more than the evidence supports is how a check loses trust.
+    Add-CheckResult -Name 'IdentityStore-Cache' -Verdict 'WARN' `
+        -Detail "$($entraProfileSids.Count) Entra profile(s) exist on this device AND $($staleCacheSids.Count) source-domain SID(s) are still cached: $($staleCacheSids -join ', ')." `
+        -Action "Per Quest ODMAD QSG TOPIC-2293745: run Repair-IdentityStoreCache.ps1. If a migrated user has already signed in, black screen / taskbar flicker may have occurred and can recur on the next sign-in."
+} else {
+    # Verdict must stay PASS/WARN/FAIL - the summary reader parses those three and
+    # Add-CheckResult suppresses the Action line on PASS, so the guidance goes in
+    # Detail or it disappears from the report entirely.
+    Add-CheckResult -Name 'IdentityStore-Cache' -Verdict 'PASS' `
+        -Detail "$($staleCacheSids.Count) source-domain SID(s) cached, no migrated user signed in yet - expected pre-logon state, not a fault. Clear via Repair-IdentityStoreCache.ps1 before first target-user logon. Cached: $($staleCacheSids -join ', ')"
 }
 
 # Profile .bak SID check (Quest QSG: verify profile is same as source user - TOPIC-2311203 step 3)
