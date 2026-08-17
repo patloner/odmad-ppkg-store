@@ -6,7 +6,7 @@
 
 .DESCRIPTION
     Companion to Get-PreCutoverState.ps1 (Quest ODM Custom Action).
-    Fetches all PreCutoverState_*_<date>_*.txt logs from odmad-ppkg-store/logs/,
+    Fetches all PreCutoverState_*_<date>_*.txt logs from odm-reports/logs/,
     parses them, and renders a fleet-level HTML report showing:
       - Which machines are READY, REVIEW, or HOLD (blocked from cutover)
       - Pending reboot and TPM failures (must fix before proceeding)
@@ -21,7 +21,7 @@
     Date to pull logs for. Defaults to today. Matches YYYYMMDD in filename.
 
 .PARAMETER GitHubToken
-    GitHub PAT with contents:read on odmad-ppkg-store. Also accepts $env:GITHUB_TOKEN.
+    GitHub PAT with contents:read on odm-reports. Also accepts $env:ODMAD_GH_TOKEN or $env:GITHUB_TOKEN.
 
 .PARAMETER LatestOnly
     Keep only the most recent log per machine when multiple exist for the same date.
@@ -51,7 +51,7 @@ param(
     [string]$RepoOwner = 'patloner',
 
     [Parameter()]
-    [string]$RepoName = 'odmad-ppkg-store',
+    [string]$RepoName = 'odm-reports',
 
     [Parameter()]
     [string]$Branch = 'main',
@@ -70,9 +70,18 @@ Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$token = if ($GitHubToken) { $GitHubToken } else { $env:GITHUB_TOKEN }
+# Required for [System.Web.HttpUtility]::HtmlEncode on Windows PowerShell 5.1.
+# Not auto-loaded, and with $ErrorActionPreference='Stop' an unresolved type
+# would abort the whole report on the first table row.
+Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
+
+# Accept either env var. The device-side scripts and both bootstraps use
+# ODMAD_GH_TOKEN, so falling back only to GITHUB_TOKEN was an easy trap.
+$token = $GitHubToken
+if (-not $token) { $token = $env:ODMAD_GH_TOKEN }
+if (-not $token) { $token = $env:GITHUB_TOKEN }
 if (-not $token) {
-    Write-Error "No GitHub token supplied. Pass -GitHubToken or set `$env:GITHUB_TOKEN."
+    Write-Error "No GitHub token supplied. Pass -GitHubToken or set `$env:ODMAD_GH_TOKEN."
 }
 
 $dateStamp = $Date.ToString('yyyyMMdd')
@@ -153,6 +162,7 @@ function Parse-PreCutoverLog {
     $overall     = 'UNKNOWN'
     $failChecks  = [System.Collections.Generic.List[object]]::new()
     $warnChecks  = [System.Collections.Generic.List[object]]::new()
+    $infoChecks  = [System.Collections.Generic.List[object]]::new()
     $mamCount    = 0
     $wpCount     = 0
     $ngcPresent  = $false
@@ -177,6 +187,11 @@ function Parse-PreCutoverLog {
         } elseif ($line -match '^\s+\[FAIL\]\s+(\S+)\s+(.+)$') {
             $failCount++
             [void]$failChecks.Add([PSCustomObject]@{ Name = $matches[1]; Detail = $matches[2].Trim() })
+        } elseif ($line -match '^\s+\[INFO\]\s+(\S+)\s+(.+)$') {
+            # Deliberately counted nowhere - INFO must not affect the verdict.
+            # Captured only so notes like Pending-FileRename still surface in
+            # the detail box instead of vanishing from the report.
+            [void]$infoChecks.Add([PSCustomObject]@{ Name = $matches[1]; Detail = $matches[2].Trim() })
         }
 
         if ($line -match 'OVERALL:\s+(READY|HOLD|REVIEW)') { $overall = $matches[1] }
@@ -184,14 +199,27 @@ function Parse-PreCutoverLog {
         if ($line -match 'Found (\d+) Workplace') { $wpCount = [int]$matches[1] }
         if ($line -match 'NGC folder has content') { $ngcPresent = $true }
         if ($line -match 'TPM present, enabled, and ready') { $tpmReady = 'PASS' }
-        if ($line -match 'TPM is not present|not enabled|not in Ready') { $tpmReady = 'FAIL' }
+        # Alternation must stay inside the group. Unparenthesised, the bare
+        # 'not enabled' / 'not in Ready' branches match anywhere on any line -
+        # including inside a dumped file path - and fake a fleet TPM failure.
+        if ($line -match 'TPM is (not present|not enabled|not in Ready)') { $tpmReady = 'FAIL' }
         if ($line -match '(\d+[\.,]\d+) GB free on C:') { $diskFreeGB = $matches[1] }
         if ($line -match 'DomainJoined=(\w+)') { $domJoined = $matches[1] }
-        if ($line -match 'Tenant=([^\s]+)') { $tenantName = $matches[1] }
+        # Tenant is the last field on the JoinState line, and tenant names
+        # contain spaces - [^\s]+ silently truncated "Marco Technologies" to
+        # "Marco".
+        if ($line -match 'Tenant=(.+)$') { $tenantName = $matches[1].Trim() }
     }
 
     if ($overall -eq 'UNKNOWN') {
-        $overall = if ($failCount -gt 0) { 'HOLD' } elseif ($warnCount -gt 0) { 'REVIEW' } else { 'READY' }
+        if (($passCount + $warnCount + $failCount) -eq 0) {
+            # Nothing parsed at all. Do NOT infer READY from an absence of
+            # findings - a truncated, empty or wrong-type log would otherwise be
+            # reported as ready to cut over. Absence of evidence is not evidence.
+            $overall = 'UNKNOWN'
+        } else {
+            $overall = if ($failCount -gt 0) { 'HOLD' } elseif ($warnCount -gt 0) { 'REVIEW' } else { 'READY' }
+        }
     }
 
     return [PSCustomObject]@{
@@ -203,6 +231,7 @@ function Parse-PreCutoverLog {
         Overall     = $overall
         FailChecks  = $failChecks
         WarnChecks  = $warnChecks
+        InfoChecks  = $infoChecks
         MamCount    = $mamCount
         WpCount     = $wpCount
         NgcPresent  = $ngcPresent
@@ -221,15 +250,23 @@ function Parse-PreCutoverLog {
 $machineResults = [System.Collections.Generic.List[object]]::new()
 
 foreach ($file in ($stateFiles | Sort-Object name)) {
+    # Defensive: only PreCutoverState logs belong here. Anything else parses to
+    # MachineName='Unknown', and -LatestOnly would then collapse every unrelated
+    # file into one bogus row.
+    if ($file.name -notmatch '^PreCutoverState_.+_\d{8}_\d{6}\.txt$') {
+        Write-Host "  Skipping $($file.name) - not a PreCutoverState log." -ForegroundColor DarkGray
+        continue
+    }
     Write-Host "  Fetching $($file.name)..." -ForegroundColor Gray
     try {
         $content = Get-RawContent -ApiUrl $file.url
         $parsed  = Parse-PreCutoverLog -Content $content -FileName $file.name
         $machineResults.Add($parsed)
         $color = switch ($parsed.Overall) {
-            'HOLD'   { 'Red' }
-            'REVIEW' { 'Yellow' }
-            default  { 'Green' }
+            'HOLD'    { 'Red' }
+            'REVIEW'  { 'Yellow' }
+            'READY'   { 'Green' }
+            default   { 'Magenta' }   # UNKNOWN - nothing parsed, needs a look
         }
         Write-Host ("    {0,-30} {1,-8} PASS={2,2}  WARN={3,2}  FAIL={4,2}" -f `
             $parsed.MachineName, $parsed.Overall, $parsed.PassCount, $parsed.WarnCount, $parsed.FailCount) `
@@ -262,6 +299,7 @@ $fleetTotal  = $machineResults.Count
 $fleetReady  = @($machineResults | Where-Object { $_.Overall -eq 'READY' }).Count
 $fleetReview = @($machineResults | Where-Object { $_.Overall -eq 'REVIEW' }).Count
 $fleetHold   = @($machineResults | Where-Object { $_.Overall -eq 'HOLD' }).Count
+$fleetUnknown= @($machineResults | Where-Object { $_.Overall -eq 'UNKNOWN' }).Count
 $fleetMAM    = ($machineResults | Measure-Object -Property MamCount -Sum).Sum
 $fleetNGC    = @($machineResults | Where-Object { $_.NgcPresent }).Count
 $fleetTPMFail= @($machineResults | Where-Object { $_.TpmReady -eq 'FAIL' }).Count
@@ -272,7 +310,11 @@ $topFails = @($allFailNames | Group-Object | Sort-Object Count -Descending | Sel
 $topWarns = @($allWarnNames | Group-Object | Sort-Object Count -Descending | Select-Object -First 5)
 
 $generatedAt  = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-$fleetVerdict = if ($fleetHold -gt 0) { 'HOLD' } elseif ($fleetReview -gt 0) { 'REVIEW' } else { 'READY' }
+# An UNKNOWN machine is an unanswered question, not a pass - it must not be able
+# to sit inside a green fleet verdict.
+$fleetVerdict = if ($fleetHold -gt 0 -or $fleetUnknown -gt 0) { 'HOLD' }
+                elseif ($fleetReview -gt 0) { 'REVIEW' }
+                else { 'READY' }
 
 # ---------------------------------------------------------------------------
 # Build HTML
@@ -290,21 +332,30 @@ foreach ($m in $sortedResults) {
         default  { 'row-ready' }
     }
     $badge = switch ($m.Overall) {
-        'HOLD'   { "<span class='badge badge-hold'>HOLD</span>" }
-        'REVIEW' { "<span class='badge badge-review'>REVIEW</span>" }
-        default  { "<span class='badge badge-ready'>READY</span>" }
+        'HOLD'    { "<span class='badge badge-hold'>HOLD</span>" }
+        'REVIEW'  { "<span class='badge badge-review'>REVIEW</span>" }
+        'READY'   { "<span class='badge badge-ready'>READY</span>" }
+        # Never let an unrecognised verdict fall through to a green READY badge.
+        default   { "<span class='badge badge-hold'>UNKNOWN</span>" }
     }
     $tpmBadge = if ($m.TpmReady -eq 'FAIL') { "<span class='pill pill-fail'>TPM FAIL</span>" } else { '' }
     $mamBadge = if ($m.MamCount -gt 0) { "<span class='pill pill-warn'>MAM:$($m.MamCount)</span>" } else { '' }
     $ngcBadge = if ($m.NgcPresent) { "<span class='pill pill-info'>NGC</span>" } else { '' }
 
     $failTags = ($m.FailChecks | ForEach-Object { "<span class='pill pill-fail'>FAIL: $($_.Name)</span>" }) -join ' '
+    # Known-benign warnings are suppressed from the triage pills - they are
+    # still shown in the expanded detail box. Pending-FileRename is NOT in this
+    # list on purpose: routine PFRO churn is graded INFO by the collector, so
+    # anything that reaches WARN hit Windows servicing and needs the pill.
     $warnTags = ($m.WarnChecks | Where-Object { $_.Name -notmatch 'MAM|Workplace' } |
         ForEach-Object { "<span class='pill pill-warn'>WARN: $($_.Name)</span>" }) -join ' '
 
     [void]$tableRows.AppendLine("<tr class='$rowClass'>")
     [void]$tableRows.AppendLine("  <td class='machine-name'>$([System.Web.HttpUtility]::HtmlEncode($m.MachineName))</td>")
-    [void]$tableRows.AppendLine("  <td>$($m.LogTime.Substring(11))</td>")
+    # LogTime is '' whenever the filename did not match the PreCutoverState
+    # pattern, and Substring(11) on that throws. Format defensively.
+    $timeCell = if ($m.LogTime -and $m.LogTime.Length -ge 12) { $m.LogTime.Substring(11) } else { '-' }
+    [void]$tableRows.AppendLine("  <td>$timeCell</td>")
     [void]$tableRows.AppendLine("  <td class='num-pass'>$($m.PassCount)</td>")
     [void]$tableRows.AppendLine("  <td class='num-warn'>$($m.WarnCount)</td>")
     [void]$tableRows.AppendLine("  <td class='num-fail'>$($m.FailCount)</td>")
@@ -327,12 +378,30 @@ foreach ($m in $sortedResults) {
     if ($m.WarnChecks.Count -gt 0) {
         [void]$tableRows.AppendLine("      <div class='detail-section-title'>Warnings</div>")
         foreach ($wc in $m.WarnChecks) {
-            $autoNote = if ($wc.Name -match 'MAM|Workplace') { ' <em>(auto-cleared by Remove-ConflictingEnrollments)</em>' } else { '' }
+            # Annotate the warnings that are known-benign so a REVIEW row can be
+            # cleared at a glance instead of being chased machine by machine.
+            $autoNote = ''
+            if ($wc.Name -match 'MAM|Workplace') {
+                $autoNote = ' <em>(auto-cleared by Remove-ConflictingEnrollments)</em>'
+            } elseif ($wc.Name -match 'Pending-FileRename') {
+                # Routine PFRO churn is graded INFO by the collector, so if it
+                # reached WARN the queued paths hit Windows servicing.
+                $autoNote = ' <em>(queued paths hit Windows servicing - check these before cutting this machine over)</em>'
+            }
             [void]$tableRows.AppendLine("      <div class='detail-item warn-item'><strong>$([System.Web.HttpUtility]::HtmlEncode($wc.Name))</strong>  -- $([System.Web.HttpUtility]::HtmlEncode($wc.Detail))$autoNote</div>")
         }
     }
     if ($m.NgcPresent) {
         [void]$tableRows.AppendLine("      <div class='detail-item info-item'><strong>NGC-Keys</strong>  -- Windows Hello keys present. Will be cleared by Clear-NGC Custom Action.</div>")
+    }
+    # Notes carry INFO checks - non-blocking by definition, but they belong in
+    # the audit record. NGC-Keys is skipped; it already has its own line above.
+    $notes = @($m.InfoChecks | Where-Object { $_.Name -notmatch 'NGC-Keys' })
+    if ($notes.Count -gt 0) {
+        [void]$tableRows.AppendLine("      <div class='detail-section-title'>Notes</div>")
+        foreach ($ic in $notes) {
+            [void]$tableRows.AppendLine("      <div class='detail-item info-item'><strong>$([System.Web.HttpUtility]::HtmlEncode($ic.Name))</strong>  -- $([System.Web.HttpUtility]::HtmlEncode($ic.Detail))</div>")
+        }
     }
 
     [void]$tableRows.AppendLine("    </div>")
@@ -489,6 +558,9 @@ Write-Host "  Fleet summary:" -ForegroundColor White
 Write-Host "    Ready  : $fleetReady" -ForegroundColor Green
 Write-Host "    Review : $fleetReview" -ForegroundColor Yellow
 Write-Host "    HOLD   : $fleetHold" -ForegroundColor Red
+if ($fleetUnknown -gt 0) {
+    Write-Host "    UNKNOWN: $fleetUnknown  (log parsed to zero checks - investigate, do NOT treat as ready)" -ForegroundColor Magenta
+}
 Write-Host "    MAM enrollments (auto-clear): $fleetMAM" -ForegroundColor Gray
 Write-Host "    NGC present (auto-clear)    : $fleetNGC" -ForegroundColor Gray
 Write-Host "    TPM failures                : $fleetTPMFail" -ForegroundColor $(if ($fleetTPMFail -gt 0) { 'Red' } else { 'Gray' })
