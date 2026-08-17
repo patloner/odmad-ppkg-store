@@ -12,13 +12,21 @@
       2. Audit record - documents pre-cutover enrollment and join state
 
     Checks and verdicts:
-      FAIL  Pending reboot detected      -- OS has a pending reboot; domain leave may behave
-                                            unpredictably if a reboot is already queued
+      FAIL  Pending reboot detected      -- CBS / Windows Update / UpdateExeVolatile only.
+                                            A servicing op is mid-flight; domain leave may
+                                            behave unpredictably if a reboot is queued
+      INFO  PendingFileRenameOperations  -- Queued rename for next boot. Repopulated after
+                                            every boot by Defender and browser updaters, so
+                                            it will not clear by rebooting. Does not affect
+                                            domain leave or Entra join. Queued paths are
+                                            logged so the source can be identified
+      WARN  PFRO hits Windows servicing  -- Same check, but the queued paths point at WinSxS
+                                            or CbsTemp - a servicing op may be mid-flight
       FAIL  TPM not present/enabled      -- Entra device identity is TPM-backed; join will fail
       WARN  Disk space low (<2GB free)   -- May cause issues during domain leave or PPKG apply
       WARN  MAM enrollment present       -- Will be cleared by Remove-ConflictingEnrollments
       WARN  Workplace registration found -- Will be cleared by Remove-ConflictingEnrollments
-      WARN  NGC folder has content       -- Will be cleared by Clear-NGC before join
+      INFO  NGC folder has content       -- Will be cleared by Clear-NGC before join
       INFO  dsregcmd snapshot            -- Current join state for audit record
       INFO  Enrollment registry dump     -- Full enrollment details for audit record
 
@@ -206,8 +214,25 @@ Write-Log ""
 
 # ===========================================================================
 # SECTION 3: Pending reboot check
+#
+# Two tiers, deliberately.
+#
+# CBS RebootPending, Windows Update RebootRequired and UpdateExeVolatile mean
+# a servicing operation is genuinely mid-flight. Leaving the domain on top of
+# one of those is unpredictable, so they stay blockers.
+#
+# PendingFileRenameOperations is a different animal. Defender platform and
+# definition updates, the Edge and Chrome updaters, and most endpoint agents
+# repopulate PFRO within minutes of every boot. It therefore survives a reboot
+# that actually happened and flags most of a healthy fleet - observed on 15 of
+# 17 machines in the DHS batch on 2026-08-13. It is only a queued rename for
+# next boot and has no bearing on domain leave or Entra join, so it is graded
+# INFO with the queued paths listed - it does not hold a machine back.
+#
+# The one exception: if the queued paths point at WinSxS or CbsTemp, servicing
+# really is mid-flight and PFRO is raised to WARN.
 # ===========================================================================
-Write-Log "[3/5] Pending Reboot"
+Write-Log "[3/5] Pending Reboot and File Renames"
 Write-Log ""
 
 $rebootReasons = [System.Collections.Generic.List[string]]::new()
@@ -218,26 +243,87 @@ if (Test-Path $cbsPath) { [void]$rebootReasons.Add('CBS RebootPending key presen
 $wuPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'
 if (Test-Path $wuPath) { [void]$rebootReasons.Add('Windows Update RebootRequired key present') }
 
-$pfroPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
-try {
-    $pfro = Get-ItemProperty -Path $pfroPath -Name 'PendingFileRenameOperations' -ErrorAction Stop
-    if ($pfro.PendingFileRenameOperations) { [void]$rebootReasons.Add('PendingFileRenameOperations set') }
-} catch { }
-
 $vuPath = 'HKLM:\SOFTWARE\Microsoft\Updates\UpdateExeVolatile'
 try {
     $vu = Get-ItemProperty -Path $vuPath -Name 'Flags' -ErrorAction Stop
     if ($vu.Flags -ne 0) { [void]$rebootReasons.Add("UpdateExeVolatile Flags=$($vu.Flags)") }
 } catch { }
 
+# PendingFileRenameOperations is collected here but graded separately below.
+# REG_MULTI_SZ holding source/destination pairs; an empty destination means
+# "delete at next boot", so blank entries are expected and are not junk.
+$pfroPath    = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+$pfroRaw     = @()
+$pfroEntries = @()
+try {
+    $pfro    = Get-ItemProperty -Path $pfroPath -Name 'PendingFileRenameOperations' -ErrorAction Stop
+    $pfroRaw = @($pfro.PendingFileRenameOperations)
+    $pfroEntries = @($pfroRaw | Where-Object { $_ -and $_.Trim() -ne '' })
+} catch { }
+
 if ($rebootReasons.Count -gt 0) {
-    Write-Log ("  Pending reboot indicators: {0}" -f ($rebootReasons -join '; '))
+    Write-Log ("  Blocking reboot indicators: {0}" -f ($rebootReasons -join '; '))
     Add-CheckResult -Name 'Pending-Reboot' -Verdict 'FAIL' `
         -Detail "Pending reboot detected: $($rebootReasons -join '; ')" `
         -Action "Reboot the machine and allow it to complete before starting the cutover. A pending reboot can cause unpredictable domain-leave behavior."
 } else {
-    Write-Log "  No pending reboot indicators found."
-    Add-CheckResult -Name 'Pending-Reboot' -Verdict 'PASS' -Detail "No pending reboot detected."
+    Write-Log "  No blocking reboot indicators (CBS, Windows Update and UpdateExeVolatile all clear)."
+    Add-CheckResult -Name 'Pending-Reboot' -Verdict 'PASS' -Detail "No blocking pending-reboot indicators detected."
+}
+
+if ($pfroEntries.Count -gt 0) {
+    # Attribute the source so the engineer can tell routine updater churn from
+    # a real servicing backlog without remoting to the box.
+    # Report every source that matched, not just the first. A box can carry
+    # Defender churn AND a real servicing backlog at the same time, and
+    # first-match-wins would hide the servicing hit behind the Defender one -
+    # which is the exact case the Action text tells you to go look for. So
+    # Windows servicing is tested first and all hits are joined.
+    $pfroText   = ($pfroEntries -join ' ')
+    $sourceHits = [System.Collections.Generic.List[string]]::new()
+    if ($pfroText -match 'WinSxS|CbsTemp|servicing')                         { [void]$sourceHits.Add('Windows servicing') }
+    if ($pfroText -match 'Windows Defender|MpSigStub|MsMpEng|Platform\\4\.') { [void]$sourceHits.Add('Microsoft Defender update') }
+    if ($pfroText -match 'EdgeUpdate|Microsoft\\Edge')                       { [void]$sourceHits.Add('Microsoft Edge updater') }
+    if ($pfroText -match 'Google\\Update|GoogleUpdate|Chrome')               { [void]$sourceHits.Add('Google Chrome updater') }
+
+    # -join first, so this assigns a string. Assigning the List straight out of
+    # an if would unroll it - the trap this codebase has hit before.
+    $likelySource = if ($sourceHits.Count -gt 0) { $sourceHits -join ', ' } else { 'unclassified' }
+    $servicingHit = $sourceHits -contains 'Windows servicing'
+
+    # Ops counts source/destination pairs; paths counts the non-blank entries
+    # actually printed below. Reporting both stops the log reading as though it
+    # printed more lines than it claimed to find.
+    $pfroOps   = [int][Math]::Ceiling($pfroRaw.Count / 2.0)
+    $pfroPaths = $pfroEntries.Count
+    Write-Log ("  PendingFileRenameOperations set - {0} queued operation(s) across {1} path(s), likely source: {2}" -f $pfroOps, $pfroPaths, $likelySource)
+
+    $pfroShown = [Math]::Min(20, $pfroEntries.Count)
+    for ($i = 0; $i -lt $pfroShown; $i++) {
+        Write-Log ("      {0}" -f $pfroEntries[$i])
+    }
+    if ($pfroEntries.Count -gt $pfroShown) {
+        Write-Log ("      ... {0} more path(s) not shown." -f ($pfroEntries.Count - $pfroShown))
+    }
+
+    # Verdict depends on what is actually queued. Updater churn is INFO so a
+    # machine with nothing else wrong still reports READY - grading it WARN
+    # turned ~88% of the DHS fleet yellow and buried the real exceptions.
+    # Windows servicing paths are the one case that stays a WARN.
+    if ($servicingHit) {
+        Add-CheckResult -Name 'Pending-FileRename' -Verdict 'WARN' `
+            -Detail "PendingFileRenameOperations set - $pfroOps queued operation(s) across $pfroPaths path(s), likely source: $likelySource." `
+            -Action "Queued paths include Windows servicing (WinSxS or CbsTemp), so a servicing operation may genuinely be mid-flight. Review the paths logged above before cutting this machine over."
+    } else {
+        Add-CheckResult -Name 'Pending-FileRename' -Verdict 'INFO' `
+            -Detail "PendingFileRenameOperations set - $pfroOps queued operation(s) across $pfroPaths path(s), likely source: $likelySource. Not a cutover blocker."
+        # Add-CheckResult suppresses the Action line for INFO, so the guidance
+        # is written directly - it is the whole point of logging this.
+        Write-Log "         Defender and browser updaters repopulate PFRO within minutes of every"
+        Write-Log "         boot, so rebooting will not clear it. No Windows servicing paths queued."
+    }
+} else {
+    Add-CheckResult -Name 'Pending-FileRename' -Verdict 'PASS' -Detail "No pending file rename operations queued."
 }
 
 Write-Log ""
