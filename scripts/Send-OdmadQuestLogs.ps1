@@ -30,17 +30,23 @@
     Marco Technologies - Migration Engineering
     Host in odmad-ppkg-store/scripts/ (public). Pure ASCII - keep it that way.
 #>
-[CmdletBinding()]
-param(
-    [string]$Client      = $env:ODMAD_CLIENT,
-    [string]$GitHubToken = $env:ODMAD_GH_TOKEN,
-    [string]$RepoOwner   = 'patloner',
-    [string]$RepoName    = 'odm-reports',
-    [string]$Branch      = 'main',
-    [string]$RepoFolder  = 'quest-logs',
-    [int]$MaxZipMB       = 40,
-    [int]$MaxFileMB      = 15
-)
+# NO param()/[CmdletBinding()] block, by design: ODM invokes custom actions with its own named
+# arguments (-Device_DN ...); a param block fails the action with "A parameter cannot be found
+# that matches parameter name 'Device_DN'". Config = env vars; optional -MaxZipMB / -MaxFileMB
+# are read from $args (via the bootstrap's $ScriptArgs), and unknown ODM args are ignored.
+$Client      = $env:ODMAD_CLIENT
+$GitHubToken = $env:ODMAD_GH_TOKEN
+$RepoOwner   = 'patloner'
+$RepoName    = 'odm-reports'
+$Branch      = 'main'
+$RepoFolder  = 'quest-logs'
+$MaxZipMB    = 40
+$MaxFileMB   = 15
+$odmArgs = @($args | ForEach-Object { [string]$_ })
+for ($i = 0; $i -lt ($odmArgs.Count - 1); $i++) {
+    if ($odmArgs[$i] -eq '-MaxZipMB')  { $MaxZipMB  = [int]$odmArgs[$i + 1] }
+    if ($odmArgs[$i] -eq '-MaxFileMB') { $MaxFileMB = [int]$odmArgs[$i + 1] }
+}
 
 $ErrorActionPreference = 'Continue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
