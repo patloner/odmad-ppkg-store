@@ -33,15 +33,15 @@
     Marco Technologies - Migration Engineering. Host in odmad-ppkg-store/scripts/ (public).
     Replaces the old copy-to-UNC-share profile listing script. Pure ASCII.
 #>
-[CmdletBinding()]
-param(
-    [string]$Client      = $env:ODMAD_CLIENT,
-    [string]$GitHubToken = $env:ODMAD_GH_TOKEN,
-    [string]$RepoOwner   = 'patloner',
-    [string]$RepoName    = 'odm-reports',
-    [string]$Branch      = 'main',
-    [string]$RepoFolder  = 'profiles'
-)
+# NO param()/[CmdletBinding()] block, by design: ODM invokes custom actions with its own named
+# arguments (-Device_DN ...), and a param block makes the action fail before it starts with
+# "A parameter cannot be found that matches parameter name 'Device_DN'". Config comes from env vars.
+$Client      = $env:ODMAD_CLIENT
+$GitHubToken = $env:ODMAD_GH_TOKEN
+$RepoOwner   = 'patloner'
+$RepoName    = 'odm-reports'
+$Branch      = 'main'
+$RepoFolder  = 'profiles'
 
 $ErrorActionPreference = 'Continue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
