@@ -25,6 +25,9 @@
       ODMAD_GH_TOKEN   PAT, contents:write on odm-reports ONLY (empty = local copy only)
       ODMAD_CLIENT     folder name under profiles/
     Always exits 0 so it never aborts an ODM sequence. Read the task output.
+    Run as SYSTEM (ODM) or an elevated admin: non-elevated runs cannot read other users' NTUSER.DAT
+    or protected profile folders, so NtuserLastWrite/FolderOwner come back blank and FolderExists
+    shows AccessDenied for those rows. FolderOnly 'TEMP' = a temporary profile was used (failed load).
 
 .NOTES
     Marco Technologies - Migration Engineering. Host in odmad-ppkg-store/scripts/ (public).
@@ -104,7 +107,9 @@ Get-ChildItem -Path $plKey -ErrorAction SilentlyContinue | ForEach-Object {
     $p     = Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue
     $path  = [string]$p.ProfileImagePath
     $w     = $wmi[$sid]
-    $exists = [bool]($path -and (Test-Path -LiteralPath $path))
+    # Test-Path raises access-denied on protected profiles (e.g. systemprofile) when not run as SYSTEM/admin
+    $exists = $false; $denied = $false
+    if ($path) { try { $exists = [bool](Test-Path -LiteralPath $path -ErrorAction Stop) } catch { $denied = $true } }
     $ntuser = ''
     if ($exists) { $nt = Get-Item -LiteralPath (Join-Path $path 'NTUSER.DAT') -Force -ErrorAction SilentlyContinue; if ($nt) { $ntuser = Format-Time $nt.LastWriteTime } }
     if ($path) { $seen[$path.ToLower()] = $true }
@@ -115,7 +120,7 @@ Get-ChildItem -Path $plKey -ErrorAction SilentlyContinue | ForEach-Object {
         EntraObjectId   = ConvertTo-EntraObjectId $sid
         Account         = Resolve-SidName $sid
         ProfilePath     = $path
-        FolderExists    = $exists
+        FolderExists    = $(if ($denied) { 'AccessDenied' } else { $exists })
         FolderOwner     = $(if ($exists) { Get-FolderOwner $path } else { '' })
         LastUseTime     = $(if ($w) { Format-Time $w.LastUseTime } else { '' })
         NtuserLastWrite = $ntuser
@@ -130,7 +135,7 @@ Get-ChildItem -Path $plKey -ErrorAction SilentlyContinue | ForEach-Object {
 # Folders on disk with no ProfileList entry (orphaned/leftover profiles)
 $skip = 'Public', 'Default', 'Default User', 'All Users', 'desktop.ini'
 Get-ChildItem -LiteralPath (Join-Path $env:SystemDrive 'Users') -Directory -Force -ErrorAction SilentlyContinue |
-    Where-Object { $skip -notcontains $_.Name -and -not $seen.ContainsKey($_.FullName.ToLower()) } |
+    Where-Object { $skip -notcontains $_.Name -and $_.Name -notmatch '^(UMFD|DWM)-\d+$' -and -not $seen.ContainsKey($_.FullName.ToLower()) } |
     ForEach-Object {
         $nt = Get-Item -LiteralPath (Join-Path $_.FullName 'NTUSER.DAT') -Force -ErrorAction SilentlyContinue
         $rows.Add([pscustomobject][ordered]@{
